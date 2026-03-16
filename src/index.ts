@@ -409,17 +409,18 @@ server.resource(
 // Add adb devices tool
 server.tool(
   "adb_devices",
+  ADB_DEVICES_TOOL_DESCRIPTION,
   AdbDevicesSchema.shape,
   async (_args: Record<string, never>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, "Listing connected devices");
     return executeAdbCommand(["devices"], "Error executing adb devices");
-  },
-  { description: ADB_DEVICES_TOOL_DESCRIPTION }
+  }
 );
 
 // Add adb UI dump tool
 server.tool(
   "inspect_ui",
+  INSPECT_UI_TOOL_DESCRIPTION,
   AdbUidumpSchema.shape,
   async (args: z.infer<typeof AdbUidumpSchema>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, "Dumping UI hierarchy");
@@ -470,13 +471,13 @@ server.tool(
       // Clean up the temporary file
       await cleanupTempFile(tempFilePath);
     }
-  },
-  { description: INSPECT_UI_TOOL_DESCRIPTION }
+  }
 );
 
 // Add adb shell tool
 server.tool(
   "adb_shell",
+  ADB_SHELL_TOOL_DESCRIPTION,
   AdbShellSchema.shape,
   async (args: z.infer<typeof AdbShellSchema>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, `Executing shell command: ${args.command}`);
@@ -493,13 +494,13 @@ server.tool(
     }
 
     return executeAdbCommand([...deviceArgs, "shell", trimmedCommand], "Error executing shell command");
-  },
-  { description: ADB_SHELL_TOOL_DESCRIPTION }
+  }
 );
 
 // Add adb install tool
 server.tool(
   "adb_install",
+  ADB_INSTALL_TOOL_DESCRIPTION,
   AdbInstallSchema.shape,
   async (args: z.infer<typeof AdbInstallSchema>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, `Installing APK file from path: ${args.apkPath}`);
@@ -525,13 +526,13 @@ server.tool(
         isError: true
       };
     }
-  },
-  { description: ADB_INSTALL_TOOL_DESCRIPTION }
+  }
 );
 
 // Add adb logcat tool
 server.tool(
   "adb_logcat",
+  ADB_LOGCAT_TOOL_DESCRIPTION,
   AdbLogcatSchema.shape,
   async (args: z.infer<typeof AdbLogcatSchema>, _extra: RequestHandlerExtra) => {
     const lines = args.lines || 50;
@@ -563,13 +564,13 @@ server.tool(
         isError: true
       };
     }
-  },
-  { description: ADB_LOGCAT_TOOL_DESCRIPTION }
+  }
 );
 
 // Add adb pull tool
 server.tool(
   "adb_pull",
+  ADB_PULL_TOOL_DESCRIPTION,
   AdbPullSchema.shape,
   async (args: z.infer<typeof AdbPullSchema>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, `Pulling file from device: ${args.remotePath}`);
@@ -616,13 +617,13 @@ server.tool(
       // Clean up the temporary file
       await cleanupTempFile(tempFilePath);
     }
-  },
-  { description: ADB_PULL_TOOL_DESCRIPTION }
+  }
 );
 
 // Add adb push tool
 server.tool(
   "adb_push",
+  ADB_PUSH_TOOL_DESCRIPTION,
   AdbPushSchema.shape,
   async (args: z.infer<typeof AdbPushSchema>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, `Pushing file to device: ${args.remotePath}`);
@@ -658,13 +659,13 @@ server.tool(
       // Clean up the temporary file
       await cleanupTempFile(tempFilePath);
     }
-  },
-  { description: ADB_PUSH_TOOL_DESCRIPTION }
+  }
 );
 
 // Add adb screenshot tool
 server.tool(
   "dump_image",
+  ADB_DUMP_IMAGE_TOOL_DESCRIPTION,
   AdbScreenshotSchema.shape,
   async (args: z.infer<typeof AdbScreenshotSchema>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, "Taking device screenshot");
@@ -710,8 +711,7 @@ server.tool(
       // Clean up the temporary file
       await cleanupTempFile(tempFilePath);
     }
-  },
-  { description: ADB_DUMP_IMAGE_TOOL_DESCRIPTION }
+  }
 );
 
 // ===== Activity Manager Tool =====
@@ -723,6 +723,7 @@ const ADB_ACTIVITY_MANAGER_TOOL_DESCRIPTION =
 
 server.tool(
   "adb_activity_manager",
+  ADB_ACTIVITY_MANAGER_TOOL_DESCRIPTION,
   AdbActivityManagerSchema.shape,
   async (args: z.infer<typeof AdbActivityManagerSchema>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, `Executing Activity Manager command: am ${args.amCommand} ${args.amArgs || ''}`);
@@ -739,8 +740,7 @@ server.tool(
 
     const additionalArgs = args.amArgs ? splitCommandArguments(args.amArgs) : [];
     return executeAdbCommand([...deviceArgs, "shell", "am", amCommand, ...additionalArgs], "Error executing Activity Manager command");
-  },
-  { description: ADB_ACTIVITY_MANAGER_TOOL_DESCRIPTION }
+  }
 );
 
 // ===== Package Manager Tool =====
@@ -752,6 +752,7 @@ const ADB_PACKAGE_MANAGER_TOOL_DESCRIPTION =
 
 server.tool(
   "adb_package_manager",
+  ADB_PACKAGE_MANAGER_TOOL_DESCRIPTION,
   AdbPackageManagerSchema.shape,
   async (args: z.infer<typeof AdbPackageManagerSchema>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, `Executing Package Manager command: pm ${args.pmCommand} ${args.pmArgs || ''}`);
@@ -768,8 +769,7 @@ server.tool(
 
     const additionalArgs = args.pmArgs ? splitCommandArguments(args.pmArgs) : [];
     return executeAdbCommand([...deviceArgs, "shell", "pm", pmCommand, ...additionalArgs], "Error executing Package Manager command");
-  },
-  { description: ADB_PACKAGE_MANAGER_TOOL_DESCRIPTION }
+  }
 );
 
 // ========== Server Startup ==========
