@@ -59,7 +59,14 @@ npx adb-mcp
 
 ### MCP Configuration
 
-Add the ADB MCP server configuration:
+#### Claude
+
+```bash
+claude mcp add adb-mcp -- node /path/to/adb-mcp/dist/index.js
+```
+
+or 
+
    ```json
    {
      "mcpServers": {
@@ -73,24 +80,23 @@ Add the ADB MCP server configuration:
    }
    ```
 
-## Usage
-
-### Starting the Server
-
-**IMPORTANT: The server must be running before using any ADB tools.**
-
-Start the server using:
+#### Codex
 
 ```bash
-npx adb-mcp
+codex mcp add adb-mcp -- node /path/to/adb-mcp/dist/index.js
 ```
 
-You should see:
-```
-[INFO] ADB MCP Server connected and ready
-```
+or 
 
-Keep this terminal window open while using the ADB tools.
+   ```toml
+[mcp_servers.adb-mcp]
+command = "node"
+args = ["/path/to/adb-mcp/dist/index.js"]
+   ```
+
+## Usage
+
+
 
 ### Available Tools
 
@@ -138,7 +144,6 @@ All tools are available with the following naming convention:
 If tools aren't working:
 
 - **Server Issues:**
-  - Ensure the server is running (`npx adb-mcp`)
   - Check server output for error messages
   - Try detailed logs: `LOG_LEVEL=3 npx adb-mcp`
   - Kill hanging processes:
