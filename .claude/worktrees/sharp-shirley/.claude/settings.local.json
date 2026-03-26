@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /Users/jaroslavmatejicek/github/adb-mcp/*.md)",
+      "Bash(grep -E '\\\\.\\(json|ts|js|md\\)$|^d')",
+      "Bash(npm run:*)",
+      "Bash(cp /Users/jaroslavmatejicek/github/adb-mcp/.claude/worktrees/sharp-shirley/src/index.ts /Users/jaroslavmatejicek/github/adb-mcp/src/index.ts)",
+      "Bash(cp /Users/jaroslavmatejicek/github/adb-mcp/.claude/worktrees/sharp-shirley/src/types.ts /Users/jaroslavmatejicek/github/adb-mcp/src/types.ts)",
+      "Bash(export PATH=\"/Users/jaroslavmatejicek/android-sdk/platform-tools:$PATH\")",
+      "Bash(npm test:*)"
+    ]
+  }
+}
