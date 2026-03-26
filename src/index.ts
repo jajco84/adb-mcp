@@ -24,6 +24,7 @@ import { writeFile, unlink, readFile } from "fs";
 import { join, basename } from "path";
 import { tmpdir } from "os";
 import { URL } from "url";
+import sharp from "sharp";
 
 // Import MCP SDK using require with type casting to work with our RequestHandlerExtra interface
 const McpServerModule = require("@modelcontextprotocol/sdk/server/mcp.js");
@@ -146,10 +147,11 @@ const ADB_PUSH_TOOL_DESCRIPTION =
 /**
  * Tool description for dump-image
  */
-const ADB_DUMP_IMAGE_TOOL_DESCRIPTION = 
+const ADB_DUMP_IMAGE_TOOL_DESCRIPTION =
   "Captures the current screen of a connected Android device. " +
   "FOR HUMAN VIEWING ONLY: This tool provides a visual image that cannot be easily processed programmatically. " +
   "The screenshot shows exactly what appears on the device screen at the moment of capture. " +
+  "By default the image is resized to 40% (scaleFactor=0.4) to reduce size. Set scaleFactor=1.0 for full resolution. " +
   "The default behavior returns a success message. Use asBase64=true to get the image as base64-encoded data. " +
   "No additional parameters required beyond an optional device ID. " +
   "Use when you need to visually verify UI elements for human inspection only. " +
@@ -748,18 +750,34 @@ server.tool(
       // Clean up the remote file
       await runAdb([...deviceArgs, "shell", "rm", remotePath]);
       
-      // Read the screenshot file
-      const imageData = await readFilePromise(tempFilePath);
-      
+      // Read and optionally resize the screenshot
+      const scaleFactor = args.scaleFactor ?? 0.4;
+      let imageBuffer: Buffer;
+
+      if (scaleFactor < 1.0) {
+        // Resize using sharp
+        const metadata = await sharp(tempFilePath).metadata();
+        const newWidth = Math.round((metadata.width || 1080) * scaleFactor);
+        const newHeight = Math.round((metadata.height || 1920) * scaleFactor);
+        imageBuffer = await sharp(tempFilePath)
+          .resize(newWidth, newHeight)
+          .png()
+          .toBuffer();
+        log(LogLevel.DEBUG, `Screenshot resized from ${metadata.width}x${metadata.height} to ${newWidth}x${newHeight} (scale: ${scaleFactor})`);
+      } else {
+        // Full resolution
+        imageBuffer = await readFilePromise(tempFilePath) as unknown as Buffer;
+      }
+
       // Return as base64 or success message based on asBase64 parameter
       if (args.asBase64) {
-        const base64Image = imageData.toString('base64');
-        log(LogLevel.INFO, "Screenshot captured and converted to base64 successfully");
+        const base64Image = imageBuffer.toString('base64');
+        log(LogLevel.INFO, `Screenshot captured as base64 (scale: ${scaleFactor})`);
         return {
           content: [{ type: "text" as const, text: base64Image }]
         };
       } else {
-        log(LogLevel.INFO, "Screenshot captured successfully");
+        log(LogLevel.INFO, `Screenshot captured successfully (scale: ${scaleFactor})`);
         return {
           content: [{ type: "text" as const, text: "Screenshot captured successfully" }]
         };

@@ -116,7 +116,7 @@ All tools are available with the following naming convention:
 
 #### 🔍 UI Interaction
 
-- `dump_image` - Take a screenshot of the current screen (supports base64 output)
+- `dump_image` - Take a screenshot of the current screen (supports base64 output, auto-resized to 40% by default, use `scaleFactor=1.0` for full resolution)
 - `inspect_ui` - Get UI hierarchy in XML format
   - Return as base64 or plain text
   - Filter returned XML attributes (e.g. only `text,bounds,clickable`) to reduce output size

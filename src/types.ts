@@ -75,7 +75,8 @@ export const adbPushInputSchema = {
 
 export const dumpImageInputSchema = {
   device: z.string().optional().describe("Specific device ID (optional)"),
-  asBase64: z.boolean().optional().default(false).describe("Return image as base64 (default: false)")
+  asBase64: z.boolean().optional().default(false).describe("Return image as base64 (default: false)"),
+  scaleFactor: z.number().optional().default(0.4).describe("Scale factor for resizing the screenshot (default: 0.4 = 40%). Set to 1.0 for full resolution. Smaller values reduce transfer size and speed up processing.")
 };
 
 export const inspectUiInputSchema = {
