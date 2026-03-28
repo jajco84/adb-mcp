@@ -25,6 +25,7 @@ import { join, basename } from "path";
 import { tmpdir } from "os";
 import { URL } from "url";
 import sharp from "sharp";
+import { XMLParser } from "fast-xml-parser";
 
 // Import MCP SDK using require with type casting to work with our RequestHandlerExtra interface
 const McpServerModule = require("@modelcontextprotocol/sdk/server/mcp.js");
@@ -48,7 +49,14 @@ import {
   SystemActionSchema,
   AdbActivityManagerSchema,
   AdbPackageManagerSchema,
-  RequestHandlerExtra
+  GetInteractiveElementsSchema,
+  GetStateSchema,
+  AnnotatedScreenshotSchema,
+  RequestHandlerExtra,
+  ElementNode,
+  BoundingBox,
+  CenterCoord,
+  TreeState
 } from "./types";
 
 // Promisify execFile and fs functions
@@ -341,6 +349,262 @@ function splitCommandArguments(value: string): string[] {
   }
 
   return args;
+}
+
+// ========== Interactive Elements Helpers ==========
+
+const INTERACTIVE_CLASSES = new Set([
+  "android.widget.EditText",
+  "android.widget.Button",
+  "android.widget.ImageButton",
+  "android.widget.CheckBox",
+  "android.widget.RadioButton",
+  "android.widget.ToggleButton",
+  "android.widget.Switch",
+  "android.widget.Spinner",
+  "android.widget.SeekBar",
+  "android.widget.AutoCompleteTextView",
+  "android.widget.MultiAutoCompleteTextView",
+  "android.widget.RatingBar",
+  "android.widget.NumberPicker",
+  "android.widget.DatePicker",
+  "android.widget.TimePicker",
+]);
+
+const xmlParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+  allowBooleanAttributes: true,
+});
+
+/**
+ * Parses bounds string "[x1,y1][x2,y2]" into BoundingBox
+ */
+function parseBounds(boundsStr: string): BoundingBox | null {
+  const match = boundsStr.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
+  if (!match) return null;
+  return {
+    x1: parseInt(match[1]),
+    y1: parseInt(match[2]),
+    x2: parseInt(match[3]),
+    y2: parseInt(match[4]),
+  };
+}
+
+/**
+ * Checks if a UI node is interactive (matching Python's is_interactive logic)
+ */
+function isInteractiveNode(attrs: Record<string, string>): boolean {
+  return (
+    attrs["@_focusable"] === "true" ||
+    attrs["@_clickable"] === "true" ||
+    attrs["@_long-clickable"] === "true" ||
+    attrs["@_checkable"] === "true" ||
+    attrs["@_scrollable"] === "true" ||
+    attrs["@_selected"] === "true" ||
+    attrs["@_password"] === "true" ||
+    INTERACTIVE_CLASSES.has(attrs["@_class"] || "")
+  );
+}
+
+/**
+ * Recursively extracts element name from node and children (matching Python's get_element_name)
+ */
+function getElementName(node: any, isRoot: boolean = true): string {
+  const contentDesc = node["@_content-desc"];
+  const text = node["@_text"];
+
+  if (isRoot && (contentDesc || text)) {
+    return contentDesc || text;
+  }
+
+  const texts: string[] = [];
+  const fallbackTexts: string[] = [];
+
+  function collectText(n: any, isStartNode: boolean): void {
+    const isActionable =
+      !isStartNode &&
+      (n["@_clickable"] === "true" ||
+        n["@_long-clickable"] === "true" ||
+        n["@_checkable"] === "true" ||
+        n["@_scrollable"] === "true");
+
+    const val = n["@_text"] || n["@_content-desc"] || n["@_hint"];
+
+    if (isActionable) {
+      if (val) fallbackTexts.push(val);
+      return; // stop recursing into actionable nodes
+    }
+
+    if (val) texts.push(val);
+
+    // Recurse into children
+    const children = getNodeChildren(n);
+    for (const child of children) {
+      collectText(child, false);
+    }
+  }
+
+  collectText(node, true);
+
+  const finalTexts = texts.length > 0 ? texts : fallbackTexts;
+  return finalTexts.join(" ").trim();
+}
+
+/**
+ * Gets child nodes from a parsed XML node (handles both array and single child)
+ */
+function getNodeChildren(node: any): any[] {
+  const children: any[] = [];
+  if (!node || typeof node !== "object") return children;
+
+  for (const key of Object.keys(node)) {
+    if (key.startsWith("@_") || key === "#text") continue;
+    const val = node[key];
+    if (Array.isArray(val)) {
+      children.push(...val);
+    } else if (typeof val === "object" && val !== null) {
+      children.push(val);
+    }
+  }
+  return children;
+}
+
+/**
+ * Recursively walks XML tree and collects interactive elements
+ */
+function extractInteractiveElements(node: any): ElementNode[] {
+  const elements: ElementNode[] = [];
+
+  function walk(n: any): void {
+    if (!n || typeof n !== "object") return;
+
+    const attrs = n;
+    if (attrs["@_enabled"] === "true" && isInteractiveNode(attrs)) {
+      const boundsStr = attrs["@_bounds"];
+      if (boundsStr) {
+        const bb = parseBounds(boundsStr);
+        if (bb) {
+          const name = getElementName(n, true);
+          if (name) {
+            elements.push({
+              name,
+              className: attrs["@_class"] || "",
+              center: {
+                x: Math.round((bb.x1 + bb.x2) / 2),
+                y: Math.round((bb.y1 + bb.y2) / 2),
+              },
+              boundingBox: bb,
+            });
+          }
+        }
+      }
+    }
+
+    const children = getNodeChildren(n);
+    for (const child of children) {
+      walk(child);
+    }
+  }
+
+  walk(node);
+  return elements;
+}
+
+/**
+ * Dumps UI hierarchy from device and returns parsed XML object
+ */
+async function dumpUiHierarchy(device?: string): Promise<any> {
+  const deviceArgs = buildDeviceArgs(device);
+  const tempFilePath = createTempFilePath("adb-mcp", "window_dump.xml");
+  const remotePath = "/sdcard/window_dump.xml";
+
+  try {
+    await runAdb([...deviceArgs, "shell", "uiautomator", "dump", remotePath]);
+    await runAdb([...deviceArgs, "pull", remotePath, tempFilePath]);
+    await runAdb([...deviceArgs, "shell", "rm", remotePath]);
+
+    const xmlContent = await readFilePromise(tempFilePath, "utf8");
+    const parsed = xmlParser.parse(xmlContent);
+    return parsed;
+  } finally {
+    await cleanupTempFile(tempFilePath);
+  }
+}
+
+/**
+ * Takes a screenshot and returns the image buffer
+ */
+async function takeScreenshotBuffer(device?: string, scaleFactor: number = 0.7): Promise<{ buffer: Buffer; width: number; height: number }> {
+  const deviceArgs = buildDeviceArgs(device);
+  const tempFilePath = createTempFilePath("adb-mcp", "screenshot.png");
+  const remotePath = "/sdcard/screenshot.png";
+
+  try {
+    await runAdb([...deviceArgs, "shell", "screencap", "-p", remotePath]);
+    await runAdb([...deviceArgs, "pull", remotePath, tempFilePath]);
+    await runAdb([...deviceArgs, "shell", "rm", remotePath]);
+
+    const metadata = await sharp(tempFilePath).metadata();
+    const origWidth = metadata.width || 1080;
+    const origHeight = metadata.height || 1920;
+    const newWidth = Math.round(origWidth * scaleFactor);
+    const newHeight = Math.round(origHeight * scaleFactor);
+
+    const buffer = await sharp(tempFilePath)
+      .resize(newWidth, newHeight)
+      .png()
+      .toBuffer();
+
+    return { buffer, width: newWidth, height: newHeight };
+  } finally {
+    await cleanupTempFile(tempFilePath);
+  }
+}
+
+/**
+ * Generates SVG overlay with bounding boxes and labels for interactive elements
+ */
+function generateAnnotationSvg(elements: ElementNode[], width: number, height: number, scaleFactor: number): Buffer {
+  const padding = 15;
+  const svgWidth = width + 2 * padding;
+  const svgHeight = height + 2 * padding;
+
+  function randomColor(): string {
+    const r = Math.floor(Math.random() * 200 + 55);
+    const g = Math.floor(Math.random() * 200 + 55);
+    const b = Math.floor(Math.random() * 200 + 55);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  let svgContent = "";
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    const bb = el.boundingBox;
+    const color = randomColor();
+    const x1 = Math.round(bb.x1 * scaleFactor) + padding;
+    const y1 = Math.round(bb.y1 * scaleFactor) + padding;
+    const x2 = Math.round(bb.x2 * scaleFactor) + padding;
+    const y2 = Math.round(bb.y2 * scaleFactor) + padding;
+    const w = x2 - x1;
+    const h = y2 - y1;
+
+    const label = String(i);
+    const labelWidth = label.length * 8 + 4;
+    const labelHeight = 16;
+    const labelX = x2 - labelWidth;
+    const labelY = y1 - labelHeight - 2;
+
+    // Bounding box rectangle
+    svgContent += `<rect x="${x1}" y="${y1}" width="${w}" height="${h}" fill="none" stroke="${color}" stroke-width="2"/>`;
+    // Label background
+    svgContent += `<rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}" fill="${color}"/>`;
+    // Label text
+    svgContent += `<text x="${labelX + 2}" y="${labelY + 12}" font-size="12" font-family="monospace" fill="white">${label}</text>`;
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}">${svgContent}</svg>`;
+  return Buffer.from(svg);
 }
 
 // ========== Server Setup ==========
@@ -945,6 +1209,132 @@ server.tool(
 
     const additionalArgs = args.pmArgs ? splitCommandArguments(args.pmArgs) : [];
     return executeAdbCommand([...deviceArgs, "shell", "pm", pmCommand, ...additionalArgs], "Error executing Package Manager command");
+  }
+);
+
+// ===== Interactive Elements & State Tools =====
+
+const GET_INTERACTIVE_ELEMENTS_DESCRIPTION =
+  "Parses the current screen's UI hierarchy and returns a structured JSON array of all interactive elements. " +
+  "Each element includes: name (text label), className, center coordinates {x, y}, and boundingBox {x1, y1, x2, y2}. " +
+  "Interactive elements are those that are clickable, focusable, checkable, scrollable, or belong to known input classes. " +
+  "Use this instead of inspect_ui when you need structured, actionable data about UI elements.";
+
+server.tool(
+  "get_interactive_elements",
+  GET_INTERACTIVE_ELEMENTS_DESCRIPTION,
+  GetInteractiveElementsSchema.shape,
+  async (args: z.infer<typeof GetInteractiveElementsSchema>, _extra: RequestHandlerExtra) => {
+    log(LogLevel.INFO, "Getting interactive elements");
+    try {
+      const parsed = await dumpUiHierarchy(args.device);
+      const elements = extractInteractiveElements(parsed);
+      log(LogLevel.INFO, `Found ${elements.length} interactive elements`);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(elements, null, 2) }]
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log(LogLevel.ERROR, `Error getting interactive elements: ${errorMsg}`);
+      return {
+        content: [{ type: "text" as const, text: `Error getting interactive elements: ${errorMsg}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+const GET_STATE_DESCRIPTION =
+  "Returns the current screen state as a structured JSON object containing all interactive elements. " +
+  "The response includes an 'interactiveElements' array with name, className, center coords, and bounding boxes. " +
+  "This is a convenience wrapper around get_interactive_elements that returns data in a TreeState format.";
+
+server.tool(
+  "get_state",
+  GET_STATE_DESCRIPTION,
+  GetStateSchema.shape,
+  async (args: z.infer<typeof GetStateSchema>, _extra: RequestHandlerExtra) => {
+    log(LogLevel.INFO, "Getting screen state");
+    try {
+      const parsed = await dumpUiHierarchy(args.device);
+      const elements = extractInteractiveElements(parsed);
+      const state: TreeState = { interactiveElements: elements };
+      log(LogLevel.INFO, `State captured with ${elements.length} interactive elements`);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(state, null, 2) }]
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log(LogLevel.ERROR, `Error getting screen state: ${errorMsg}`);
+      return {
+        content: [{ type: "text" as const, text: `Error getting screen state: ${errorMsg}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+const ANNOTATED_SCREENSHOT_DESCRIPTION =
+  "Takes a screenshot and overlays numbered bounding boxes on all interactive UI elements. " +
+  "Each interactive element gets a colored rectangle with an index label, making it easy to identify " +
+  "and reference elements visually. Returns the annotated image as base64-encoded PNG. " +
+  "The index numbers correspond to the elements returned by get_interactive_elements. " +
+  "Use scaleFactor to control image size (default 0.7 = 70%).";
+
+server.tool(
+  "annotated_screenshot",
+  ANNOTATED_SCREENSHOT_DESCRIPTION,
+  AnnotatedScreenshotSchema.shape,
+  async (args: z.infer<typeof AnnotatedScreenshotSchema>, _extra: RequestHandlerExtra) => {
+    log(LogLevel.INFO, "Taking annotated screenshot");
+    const scaleFactor = args.scaleFactor ?? 0.7;
+
+    try {
+      // Get interactive elements and screenshot in parallel
+      const [parsed, screenshot] = await Promise.all([
+        dumpUiHierarchy(args.device),
+        takeScreenshotBuffer(args.device, scaleFactor),
+      ]);
+
+      const elements = extractInteractiveElements(parsed);
+      log(LogLevel.INFO, `Annotating screenshot with ${elements.length} elements`);
+
+      const padding = 15;
+      const paddedWidth = screenshot.width + 2 * padding;
+      const paddedHeight = screenshot.height + 2 * padding;
+
+      // Create padded white background with screenshot
+      const svgOverlay = generateAnnotationSvg(elements, screenshot.width, screenshot.height, scaleFactor);
+
+      const annotatedBuffer = await sharp({
+        create: {
+          width: paddedWidth,
+          height: paddedHeight,
+          channels: 3,
+          background: { r: 255, g: 255, b: 255 },
+        },
+      })
+        .composite([
+          { input: screenshot.buffer, left: padding, top: padding },
+          { input: svgOverlay, left: 0, top: 0 },
+        ])
+        .png()
+        .toBuffer();
+
+      const base64Image = annotatedBuffer.toString("base64");
+      log(LogLevel.INFO, `Annotated screenshot created (${elements.length} elements, scale: ${scaleFactor})`);
+
+      return {
+        content: [{ type: "text" as const, text: base64Image }]
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log(LogLevel.ERROR, `Error creating annotated screenshot: ${errorMsg}`);
+      return {
+        content: [{ type: "text" as const, text: `Error creating annotated screenshot: ${errorMsg}` }],
+        isError: true
+      };
+    }
   }
 );
 

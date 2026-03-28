@@ -7,6 +7,7 @@ An MCP (Model Context Protocol) server for interacting with Android devices thro
 - 📋 Logging - Access device logs through logcat with level, package, and line filtering
 - 🔄 File Transfer - Push and pull files between device and host
 - 📸 UI Interaction - Capture screenshots and analyze UI hierarchy with attribute filtering
+- 🧠 Smart UI Analysis - Extract structured interactive elements and generate annotated screenshots with labeled bounding boxes
 - 👆 Input Simulation - Tap, swipe, type text, and press system keys (Back, Home, Recent Apps)
 - 🔧 Shell Command Execution - Run custom commands on the device
 
@@ -120,6 +121,12 @@ All tools are available with the following naming convention:
 - `inspect_ui` - Get UI hierarchy in XML format
   - Return as base64 or plain text
   - Filter returned XML attributes (e.g. only `text,bounds,clickable`) to reduce output size
+
+#### 🧠 Smart UI Analysis
+
+- `get_interactive_elements` - Parse the current screen and return a structured JSON array of all interactive elements, each with `name`, `className`, `center` coordinates, and `boundingBox`
+- `get_state` - Get the full screen state as a structured JSON object containing all interactive elements (wrapper around `get_interactive_elements`)
+- `annotated_screenshot` - Take a screenshot with numbered, color-coded bounding boxes drawn over each interactive element (returns base64 PNG, default scale 70%)
 
 #### 👆 Input Interaction
 

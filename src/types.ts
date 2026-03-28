@@ -92,6 +92,44 @@ export const inspectUiInputSchema = {
   )
 };
 
+// Interactive elements tool schemas
+export const getInteractiveElementsInputSchema = {
+  device: z.string().optional().describe("Specific device ID (optional)")
+};
+
+export const getStateInputSchema = {
+  device: z.string().optional().describe("Specific device ID (optional)")
+};
+
+export const annotatedScreenshotInputSchema = {
+  device: z.string().optional().describe("Specific device ID (optional)"),
+  scaleFactor: z.number().optional().default(0.7).describe("Scale factor for resizing the screenshot (default: 0.7 = 70%).")
+};
+
+// Interactive element interfaces
+export interface BoundingBox {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface CenterCoord {
+  x: number;
+  y: number;
+}
+
+export interface ElementNode {
+  name: string;
+  className: string;
+  center: CenterCoord;
+  boundingBox: BoundingBox;
+}
+
+export interface TreeState {
+  interactiveElements: ElementNode[];
+}
+
 // Input interaction tool schemas
 export const tapScreenInputSchema = {
   x: z.number().describe("The x-coordinate of the point to tap"),
@@ -154,6 +192,9 @@ export const SendTextSchema = z.object(sendTextInputSchema);
 export const SystemActionSchema = z.object(systemActionInputSchema);
 export const AdbActivityManagerSchema = adbActivityManagerSchema;
 export const AdbPackageManagerSchema = adbPackageManagerSchema;
+export const GetInteractiveElementsSchema = z.object(getInteractiveElementsInputSchema);
+export const GetStateSchema = z.object(getStateInputSchema);
+export const AnnotatedScreenshotSchema = z.object(annotatedScreenshotInputSchema);
 
 // Input type definitions
 export type AdbDevicesInput = z.infer<typeof AdbDevicesSchema>;
@@ -170,3 +211,6 @@ export type SendTextInput = z.infer<typeof SendTextSchema>;
 export type SystemActionInput = z.infer<typeof SystemActionSchema>;
 export type AdbActivityManagerInput = z.infer<typeof AdbActivityManagerSchema>;
 export type AdbPackageManagerInput = z.infer<typeof AdbPackageManagerSchema>;
+export type GetInteractiveElementsInput = z.infer<typeof GetInteractiveElementsSchema>;
+export type GetStateInput = z.infer<typeof GetStateSchema>;
+export type AnnotatedScreenshotInput = z.infer<typeof AnnotatedScreenshotSchema>;
