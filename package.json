@@ -2,15 +2,21 @@
   "name": "adb-mcp",
   "version": "0.1.1",
   "description": "MCP server for Android Debug Bridge (ADB) interactions in TypeScript",
+  "type": "module",
   "main": "dist/index.js",
   "bin": {
     "adb-mcp": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsc -w",
-    "test": "ts-node test/test-client.ts"
+    "prepublishOnly": "npm run build",
+    "test": "vitest run",
+    "test:integration": "ts-node test/test-client.ts"
   },
   "keywords": [
     "mcp",
@@ -37,8 +43,8 @@
   },
   "devDependencies": {
     "@types/node": "^20.17.30",
-    "@types/sharp": "^0.31.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.2"
   }
 }
