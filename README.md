@@ -60,10 +60,10 @@ or
    ```json
    {
      "mcpServers": {
-       "adb": {
-         "command": "npx",
+       "adb-mcp": {
+         "command": "node",
          "args": [
-           "adb-mcp"
+           "/path/to/adb-mcp/dist/index.js"
          ]
        }
      }
