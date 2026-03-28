@@ -4,11 +4,8 @@
 
 import { z } from 'zod';
 
-// RequestHandlerExtra interface for MCP SDK
-export interface RequestHandlerExtra {
-  uri: URL;
-  [key: string]: unknown;
-}
+// Re-export RequestHandlerExtra from MCP SDK
+export type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 
 /**
  * Response type for command execution
@@ -28,20 +25,8 @@ export interface ResourceResponse {
   [key: string]: unknown;
 }
 
-/**
- * Log levels enum
- */
-export enum LogLevel {
-  ERROR = 0,
-  WARN = 1,
-  INFO = 2,
-  DEBUG = 3
-}
-
 // Schema definitions for tool inputs
-export const adbDevicesInputSchema = {
-  random_string: z.string().optional()
-};
+export const adbDevicesInputSchema = {};
 
 export const adbShellInputSchema = {
   command: z.string().describe("Shell command to execute on the device"),
@@ -97,13 +82,9 @@ export const getInteractiveElementsInputSchema = {
   device: z.string().optional().describe("Specific device ID (optional)")
 };
 
-export const getStateInputSchema = {
-  device: z.string().optional().describe("Specific device ID (optional)")
-};
-
 export const annotatedScreenshotInputSchema = {
   device: z.string().optional().describe("Specific device ID (optional)"),
-  scaleFactor: z.number().optional().default(0.7).describe("Scale factor for resizing the screenshot (default: 0.7 = 70%).")
+  scaleFactor: z.number().min(0.1).max(1.0).optional().default(0.7).describe("Scale factor for resizing the screenshot (0.1–1.0, default: 0.7 = 70%).")
 };
 
 // Interactive element interfaces
@@ -114,20 +95,11 @@ export interface BoundingBox {
   y2: number;
 }
 
-export interface CenterCoord {
-  x: number;
-  y: number;
-}
-
 export interface ElementNode {
   name: string;
   className: string;
-  center: CenterCoord;
+  center: { x: number; y: number };
   boundingBox: BoundingBox;
-}
-
-export interface TreeState {
-  interactiveElements: ElementNode[];
 }
 
 // Input interaction tool schemas
@@ -193,24 +165,4 @@ export const SystemActionSchema = z.object(systemActionInputSchema);
 export const AdbActivityManagerSchema = adbActivityManagerSchema;
 export const AdbPackageManagerSchema = adbPackageManagerSchema;
 export const GetInteractiveElementsSchema = z.object(getInteractiveElementsInputSchema);
-export const GetStateSchema = z.object(getStateInputSchema);
 export const AnnotatedScreenshotSchema = z.object(annotatedScreenshotInputSchema);
-
-// Input type definitions
-export type AdbDevicesInput = z.infer<typeof AdbDevicesSchema>;
-export type AdbShellInput = z.infer<typeof AdbShellSchema>;
-export type AdbInstallInput = z.infer<typeof AdbInstallSchema>;
-export type AdbLogcatInput = z.infer<typeof AdbLogcatSchema>;
-export type AdbPullInput = z.infer<typeof AdbPullSchema>;
-export type AdbPushInput = z.infer<typeof AdbPushSchema>;
-export type AdbScreenshotInput = z.infer<typeof AdbScreenshotSchema>;
-export type AdbUidumpInput = z.infer<typeof AdbUidumpSchema>; 
-export type TapScreenInput = z.infer<typeof TapScreenSchema>;
-export type SwipeScreenInput = z.infer<typeof SwipeScreenSchema>;
-export type SendTextInput = z.infer<typeof SendTextSchema>;
-export type SystemActionInput = z.infer<typeof SystemActionSchema>;
-export type AdbActivityManagerInput = z.infer<typeof AdbActivityManagerSchema>;
-export type AdbPackageManagerInput = z.infer<typeof AdbPackageManagerSchema>;
-export type GetInteractiveElementsInput = z.infer<typeof GetInteractiveElementsSchema>;
-export type GetStateInput = z.infer<typeof GetStateSchema>;
-export type AnnotatedScreenshotInput = z.infer<typeof AnnotatedScreenshotSchema>;

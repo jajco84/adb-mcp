@@ -42,8 +42,8 @@ Thumbs.db
 *.swo
 *~
 
-# TypeScript cache
-*.tsbuildinfo
+# Claude Code
+.claude/
 
 # Optional npm cache directory
 .npm

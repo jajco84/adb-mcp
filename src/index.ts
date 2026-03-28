@@ -16,7 +16,6 @@
  * - Log levels: 0=ERROR, 1=WARN, 2=INFO, 3=DEBUG
  */
 
-// Import dependencies using require for better compatibility
 import { z } from "zod";
 import { execFile, ExecFileOptionsWithStringEncoding } from "child_process";
 import { promisify } from "util";
@@ -26,14 +25,9 @@ import { tmpdir } from "os";
 import { URL } from "url";
 import sharp from "sharp";
 import { XMLParser } from "fast-xml-parser";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-// Import MCP SDK using require with type casting to work with our RequestHandlerExtra interface
-const McpServerModule = require("@modelcontextprotocol/sdk/server/mcp.js");
-const StdioServerTransportModule = require("@modelcontextprotocol/sdk/server/stdio.js");
-const McpServer = McpServerModule.McpServer;
-const StdioServerTransport = StdioServerTransportModule.StdioServerTransport;
-
-// Import our schemas
 import {
   AdbDevicesSchema,
   AdbShellSchema,
@@ -50,13 +44,10 @@ import {
   AdbActivityManagerSchema,
   AdbPackageManagerSchema,
   GetInteractiveElementsSchema,
-  GetStateSchema,
   AnnotatedScreenshotSchema,
   RequestHandlerExtra,
   ElementNode,
   BoundingBox,
-  CenterCoord,
-  TreeState
 } from "./types";
 
 // Promisify execFile and fs functions
@@ -512,38 +503,58 @@ function extractInteractiveElements(node: any): ElementNode[] {
 }
 
 /**
- * Dumps UI hierarchy from device and returns parsed XML object
+ * Generates a unique remote path on the device to avoid race conditions
  */
-async function dumpUiHierarchy(device?: string): Promise<any> {
+function uniqueRemotePath(filename: string): string {
+  return `/data/local/tmp/adb-mcp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${filename}`;
+}
+
+/**
+ * Dumps UI hierarchy from device and returns the raw XML string.
+ * Shared by inspect_ui, get_interactive_elements, and annotated_screenshot.
+ */
+async function dumpUiHierarchyXml(device?: string): Promise<string> {
   const deviceArgs = buildDeviceArgs(device);
   const tempFilePath = createTempFilePath("adb-mcp", "window_dump.xml");
-  const remotePath = "/sdcard/window_dump.xml";
+  const remotePath = uniqueRemotePath("window_dump.xml");
 
   try {
     await runAdb([...deviceArgs, "shell", "uiautomator", "dump", remotePath]);
     await runAdb([...deviceArgs, "pull", remotePath, tempFilePath]);
     await runAdb([...deviceArgs, "shell", "rm", remotePath]);
 
-    const xmlContent = await readFilePromise(tempFilePath, "utf8");
-    const parsed = xmlParser.parse(xmlContent);
-    return parsed;
+    return await readFilePromise(tempFilePath, "utf8");
   } finally {
     await cleanupTempFile(tempFilePath);
   }
 }
 
 /**
- * Takes a screenshot and returns the image buffer
+ * Dumps UI hierarchy and returns parsed XML object
+ */
+function parseUiHierarchy(xmlContent: string): any {
+  return xmlParser.parse(xmlContent);
+}
+
+/**
+ * Takes a screenshot and returns the image buffer.
+ * Shared by dump_image and annotated_screenshot.
  */
 async function takeScreenshotBuffer(device?: string, scaleFactor: number = 0.7): Promise<{ buffer: Buffer; width: number; height: number }> {
   const deviceArgs = buildDeviceArgs(device);
   const tempFilePath = createTempFilePath("adb-mcp", "screenshot.png");
-  const remotePath = "/sdcard/screenshot.png";
+  const remotePath = uniqueRemotePath("screenshot.png");
 
   try {
     await runAdb([...deviceArgs, "shell", "screencap", "-p", remotePath]);
     await runAdb([...deviceArgs, "pull", remotePath, tempFilePath]);
     await runAdb([...deviceArgs, "shell", "rm", remotePath]);
+
+    if (scaleFactor >= 1.0) {
+      const buffer = Buffer.from(await readFilePromise(tempFilePath));
+      const metadata = await sharp(buffer).metadata();
+      return { buffer, width: metadata.width || 1080, height: metadata.height || 1920 };
+    }
 
     const metadata = await sharp(tempFilePath).metadata();
     const origWidth = metadata.width || 1080;
@@ -556,6 +567,7 @@ async function takeScreenshotBuffer(device?: string, scaleFactor: number = 0.7):
       .png()
       .toBuffer();
 
+    log(LogLevel.DEBUG, `Screenshot resized from ${origWidth}x${origHeight} to ${newWidth}x${newHeight} (scale: ${scaleFactor})`);
     return { buffer, width: newWidth, height: newHeight };
   } finally {
     await cleanupTempFile(tempFilePath);
@@ -565,29 +577,30 @@ async function takeScreenshotBuffer(device?: string, scaleFactor: number = 0.7):
 /**
  * Generates SVG overlay with bounding boxes and labels for interactive elements
  */
+/**
+ * Deterministic color palette for annotation overlays (high contrast, visually distinct)
+ */
+const ANNOTATION_COLORS = [
+  "rgb(230,25,75)", "rgb(60,180,75)", "rgb(0,130,200)", "rgb(245,130,48)",
+  "rgb(145,30,180)", "rgb(70,240,240)", "rgb(240,50,230)", "rgb(210,245,60)",
+  "rgb(250,190,212)", "rgb(0,128,128)", "rgb(220,190,255)", "rgb(170,110,40)",
+  "rgb(128,0,0)", "rgb(170,255,195)", "rgb(0,0,128)", "rgb(128,128,0)",
+];
+
 function generateAnnotationSvg(elements: ElementNode[], width: number, height: number, scaleFactor: number): Buffer {
   const padding = 15;
   const svgWidth = width + 2 * padding;
   const svgHeight = height + 2 * padding;
 
-  function randomColor(): string {
-    const r = Math.floor(Math.random() * 200 + 55);
-    const g = Math.floor(Math.random() * 200 + 55);
-    const b = Math.floor(Math.random() * 200 + 55);
-    return `rgb(${r},${g},${b})`;
-  }
-
   let svgContent = "";
   for (let i = 0; i < elements.length; i++) {
-    const el = elements[i];
-    const bb = el.boundingBox;
-    const color = randomColor();
+    const bb = elements[i].boundingBox;
+    const color = ANNOTATION_COLORS[i % ANNOTATION_COLORS.length];
     const x1 = Math.round(bb.x1 * scaleFactor) + padding;
     const y1 = Math.round(bb.y1 * scaleFactor) + padding;
     const x2 = Math.round(bb.x2 * scaleFactor) + padding;
-    const y2 = Math.round(bb.y2 * scaleFactor) + padding;
     const w = x2 - x1;
-    const h = y2 - y1;
+    const h = Math.round(bb.y2 * scaleFactor) + padding - y1;
 
     const label = String(i);
     const labelWidth = label.length * 8 + 4;
@@ -595,11 +608,8 @@ function generateAnnotationSvg(elements: ElementNode[], width: number, height: n
     const labelX = x2 - labelWidth;
     const labelY = y1 - labelHeight - 2;
 
-    // Bounding box rectangle
     svgContent += `<rect x="${x1}" y="${y1}" width="${w}" height="${h}" fill="none" stroke="${color}" stroke-width="2"/>`;
-    // Label background
     svgContent += `<rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}" fill="${color}"/>`;
-    // Label text
     svgContent += `<text x="${labelX + 2}" y="${labelY + 12}" font-size="12" font-family="monospace" fill="white">${label}</text>`;
   }
 
@@ -694,38 +704,17 @@ server.tool(
   AdbUidumpSchema.shape,
   async (args: z.infer<typeof AdbUidumpSchema>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, "Dumping UI hierarchy");
-    
-    const deviceArgs = buildDeviceArgs(args.device);
-    const tempFilePath = createTempFilePath("adb-mcp", "window_dump.xml");
-    const remotePath = args.outputPath && args.outputPath.trim()
-      ? args.outputPath.trim()
-      : "/sdcard/window_dump.xml";
-    
-    try {
-      // Dump UI hierarchy on device
-      await runAdb([...deviceArgs, "shell", "uiautomator", "dump", remotePath]);
-      
-      // Pull the UI dump from the device
-      await runAdb([...deviceArgs, "pull", remotePath, tempFilePath]);
-      
-      // Clean up the remote file
-      await runAdb([...deviceArgs, "shell", "rm", remotePath]);
-      
-      // Read the XML data
-      let xmlContent: string;
-      if (args.asBase64 !== false && !args.returnedAttributes) {
-        // Return as base64 (default, only when no attribute filtering)
-        const xmlData = await readFilePromise(tempFilePath);
-        const base64Xml = xmlData.toString('base64');
 
+    try {
+      let xmlContent = await dumpUiHierarchyXml(args.device);
+
+      if (args.asBase64 !== false && !args.returnedAttributes) {
+        const base64Xml = Buffer.from(xmlContent, 'utf8').toString('base64');
         log(LogLevel.INFO, "UI hierarchy dumped successfully as base64");
         return {
           content: [{ type: "text" as const, text: base64Xml }]
         };
       }
-
-      // Read as plain text for attribute filtering or plain text output
-      xmlContent = await readFilePromise(tempFilePath, 'utf8');
 
       // Filter attributes if returnedAttributes is specified
       if (args.returnedAttributes) {
@@ -746,12 +735,9 @@ server.tool(
         }
 
         const keepSet = new Set(attributesToKeep);
-        // Filter XML attributes using regex replacement
-        // Matches attribute="value" patterns and removes those not in keepSet
         xmlContent = xmlContent.replace(/ ([a-zA-Z-]+)="[^"]*"/g, (match, attrName) => {
           return keepSet.has(attrName) ? match : '';
         });
-        // Clean up multiple spaces
         xmlContent = xmlContent.replace(/  +/g, ' ').replace(/ >/g, '>').replace(/ \/>/g, ' />');
       }
 
@@ -766,9 +752,6 @@ server.tool(
         content: [{ type: "text" as const, text: `Error dumping UI hierarchy: ${errorMsg}` }],
         isError: true
       };
-    } finally {
-      // Clean up the temporary file
-      await cleanupTempFile(tempFilePath);
     }
   }
 );
@@ -999,43 +982,13 @@ server.tool(
   AdbScreenshotSchema.shape,
   async (args: z.infer<typeof AdbScreenshotSchema>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, "Taking device screenshot");
-    
-    const deviceArgs = buildDeviceArgs(args.device);
-    const tempFilePath = createTempFilePath("adb-mcp", "screenshot.png");
-    const remotePath = "/sdcard/screenshot.png";
-    
+    const scaleFactor = args.scaleFactor ?? 0.4;
+
     try {
-      // Take screenshot on the device
-      await runAdb([...deviceArgs, "shell", "screencap", "-p", remotePath]);
-      
-      // Pull the screenshot from the device
-      await runAdb([...deviceArgs, "pull", remotePath, tempFilePath]);
-      
-      // Clean up the remote file
-      await runAdb([...deviceArgs, "shell", "rm", remotePath]);
-      
-      // Read and optionally resize the screenshot
-      const scaleFactor = args.scaleFactor ?? 0.4;
-      let imageBuffer: Buffer;
+      const screenshot = await takeScreenshotBuffer(args.device, scaleFactor);
 
-      if (scaleFactor < 1.0) {
-        // Resize using sharp
-        const metadata = await sharp(tempFilePath).metadata();
-        const newWidth = Math.round((metadata.width || 1080) * scaleFactor);
-        const newHeight = Math.round((metadata.height || 1920) * scaleFactor);
-        imageBuffer = await sharp(tempFilePath)
-          .resize(newWidth, newHeight)
-          .png()
-          .toBuffer();
-        log(LogLevel.DEBUG, `Screenshot resized from ${metadata.width}x${metadata.height} to ${newWidth}x${newHeight} (scale: ${scaleFactor})`);
-      } else {
-        // Full resolution
-        imageBuffer = await readFilePromise(tempFilePath) as unknown as Buffer;
-      }
-
-      // Return as base64 or success message based on asBase64 parameter
       if (args.asBase64) {
-        const base64Image = imageBuffer.toString('base64');
+        const base64Image = screenshot.buffer.toString('base64');
         log(LogLevel.INFO, `Screenshot captured as base64 (scale: ${scaleFactor})`);
         return {
           content: [{ type: "text" as const, text: base64Image }]
@@ -1053,9 +1006,6 @@ server.tool(
         content: [{ type: "text" as const, text: `Error taking screenshot: ${errorMsg}` }],
         isError: true
       };
-    } finally {
-      // Clean up the temporary file
-      await cleanupTempFile(tempFilePath);
     }
   }
 );
@@ -1227,7 +1177,8 @@ server.tool(
   async (args: z.infer<typeof GetInteractiveElementsSchema>, _extra: RequestHandlerExtra) => {
     log(LogLevel.INFO, "Getting interactive elements");
     try {
-      const parsed = await dumpUiHierarchy(args.device);
+      const xml = await dumpUiHierarchyXml(args.device);
+      const parsed = parseUiHierarchy(xml);
       const elements = extractInteractiveElements(parsed);
       log(LogLevel.INFO, `Found ${elements.length} interactive elements`);
       return {
@@ -1244,42 +1195,12 @@ server.tool(
   }
 );
 
-const GET_STATE_DESCRIPTION =
-  "Returns the current screen state as a structured JSON object containing all interactive elements. " +
-  "The response includes an 'interactiveElements' array with name, className, center coords, and bounding boxes. " +
-  "This is a convenience wrapper around get_interactive_elements that returns data in a TreeState format.";
-
-server.tool(
-  "get_state",
-  GET_STATE_DESCRIPTION,
-  GetStateSchema.shape,
-  async (args: z.infer<typeof GetStateSchema>, _extra: RequestHandlerExtra) => {
-    log(LogLevel.INFO, "Getting screen state");
-    try {
-      const parsed = await dumpUiHierarchy(args.device);
-      const elements = extractInteractiveElements(parsed);
-      const state: TreeState = { interactiveElements: elements };
-      log(LogLevel.INFO, `State captured with ${elements.length} interactive elements`);
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(state, null, 2) }]
-      };
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      log(LogLevel.ERROR, `Error getting screen state: ${errorMsg}`);
-      return {
-        content: [{ type: "text" as const, text: `Error getting screen state: ${errorMsg}` }],
-        isError: true
-      };
-    }
-  }
-);
-
 const ANNOTATED_SCREENSHOT_DESCRIPTION =
   "Takes a screenshot and overlays numbered bounding boxes on all interactive UI elements. " +
   "Each interactive element gets a colored rectangle with an index label, making it easy to identify " +
-  "and reference elements visually. Returns the annotated image as base64-encoded PNG. " +
-  "The index numbers correspond to the elements returned by get_interactive_elements. " +
-  "Use scaleFactor to control image size (default 0.7 = 70%).";
+  "and reference elements visually. Returns the annotated image as base64-encoded PNG followed by " +
+  "a JSON index mapping each label number to the element's name and center coordinates. " +
+  "Use scaleFactor to control image size (0.1–1.0, default 0.7 = 70%).";
 
 server.tool(
   "annotated_screenshot",
@@ -1291,11 +1212,12 @@ server.tool(
 
     try {
       // Get interactive elements and screenshot in parallel
-      const [parsed, screenshot] = await Promise.all([
-        dumpUiHierarchy(args.device),
+      const [xml, screenshot] = await Promise.all([
+        dumpUiHierarchyXml(args.device),
         takeScreenshotBuffer(args.device, scaleFactor),
       ]);
 
+      const parsed = parseUiHierarchy(xml);
       const elements = extractInteractiveElements(parsed);
       log(LogLevel.INFO, `Annotating screenshot with ${elements.length} elements`);
 
@@ -1303,7 +1225,6 @@ server.tool(
       const paddedWidth = screenshot.width + 2 * padding;
       const paddedHeight = screenshot.height + 2 * padding;
 
-      // Create padded white background with screenshot
       const svgOverlay = generateAnnotationSvg(elements, screenshot.width, screenshot.height, scaleFactor);
 
       const annotatedBuffer = await sharp({
@@ -1322,10 +1243,22 @@ server.tool(
         .toBuffer();
 
       const base64Image = annotatedBuffer.toString("base64");
+
+      // Build an index so the caller knows which label maps to which element
+      const elementIndex = elements.map((el, i) => ({
+        index: i,
+        name: el.name,
+        className: el.className,
+        center: el.center,
+      }));
+
       log(LogLevel.INFO, `Annotated screenshot created (${elements.length} elements, scale: ${scaleFactor})`);
 
       return {
-        content: [{ type: "text" as const, text: base64Image }]
+        content: [
+          { type: "text" as const, text: base64Image },
+          { type: "text" as const, text: JSON.stringify(elementIndex, null, 2) },
+        ]
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

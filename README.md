@@ -125,8 +125,7 @@ All tools are available with the following naming convention:
 #### 🧠 Smart UI Analysis
 
 - `get_interactive_elements` - Parse the current screen and return a structured JSON array of all interactive elements, each with `name`, `className`, `center` coordinates, and `boundingBox`
-- `get_state` - Get the full screen state as a structured JSON object containing all interactive elements (wrapper around `get_interactive_elements`)
-- `annotated_screenshot` - Take a screenshot with numbered, color-coded bounding boxes drawn over each interactive element (returns base64 PNG, default scale 70%)
+- `annotated_screenshot` - Take a screenshot with numbered, color-coded bounding boxes drawn over each interactive element, plus a JSON index mapping labels to element names and coordinates (returns base64 PNG, default scale 70%)
 
 #### 👆 Input Interaction
 
