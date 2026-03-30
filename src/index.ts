@@ -447,20 +447,31 @@ async function runServer(): Promise<void> {
           throw new Error("Remote path must not be empty");
         }
 
-        const { stdout, stderr } = await runAdb([...deviceArgs, "pull", remotePath, tempFilePath]);
+        const { stderr } = await runAdb([...deviceArgs, "pull", remotePath, tempFilePath]);
         if (stderr) {
           log(LogLevel.WARN, `adb pull reported stderr: ${stderr}`);
         }
 
+        const fileData = await readFile(tempFilePath);
         if (args.asBase64 === true) {
-          const fileData = await readFile(tempFilePath);
           const base64Data = fileData.toString("base64");
           log(LogLevel.INFO, `File pulled from device successfully: ${remotePath}`);
           return {
             content: [{ type: "text" as const, text: base64Data }],
           };
         } else {
-          const fileContent = await readFile(tempFilePath, "utf8");
+          let fileContent: string;
+          try {
+            fileContent = new TextDecoder("utf8", { fatal: true }).decode(fileData);
+          } catch {
+            return {
+              content: [{
+                type: "text" as const,
+                text: "Pulled file is not valid UTF-8 text. Retry with asBase64=true to safely retrieve binary data.",
+              }],
+              isError: true,
+            };
+          }
           log(LogLevel.INFO, `File pulled from device successfully: ${remotePath}`);
           return {
             content: [{ type: "text" as const, text: fileContent }],
@@ -605,7 +616,7 @@ async function runServer(): Promise<void> {
           isError: true,
         };
       }
-      log(LogLevel.INFO, `Sending text input: ${text}`);
+      log(LogLevel.INFO, `Sending text input (length: ${text.length})`);
       const deviceArgs = buildDeviceArgs(args.device);
 
       const sanitized = sanitizeInputText(text);

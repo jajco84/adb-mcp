@@ -44,7 +44,11 @@ describe("splitCommandArguments", () => {
   });
 
   it("handles escaped characters with backslash", () => {
-    expect(splitCommandArguments("foo\\ bar baz")).toEqual(["foo\\ bar", "baz"]);
+    expect(splitCommandArguments("foo\\ bar baz")).toEqual(["foo bar", "baz"]);
+  });
+
+  it("keeps trailing backslash as literal backslash", () => {
+    expect(splitCommandArguments("foo\\")).toEqual(["foo\\"]);
   });
 
   it("handles mixed quotes", () => {

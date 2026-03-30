@@ -21,7 +21,7 @@ import assert from "assert";
 
 // Define interfaces for MCP tool responses
 interface ToolResponse {
-  content?: Array<{ type: string; text?: string }>;
+  content?: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
   [key: string]: any;
 }
 
@@ -59,50 +59,28 @@ async function main(): Promise<void> {
     assert(deviceListText.includes("List of devices attached"), "Expected device list header");
     console.log("✅ Device list response validated");
     
-    // Test the screenshot tool with default (non-base64) behavior
-    console.log("\n=== Testing dump_image (default non-base64) ===");
-    const screenshotDefaultResult = await client.callTool({
+    // Test screenshot tool (returns MCP image payload)
+    console.log("\n=== Testing dump_image ===");
+    const screenshotResult = await client.callTool({
       name: "dump_image",
       arguments: {}
     }) as ToolResponse;
     
-    console.log("Screenshot result (default):");
-    console.log(screenshotDefaultResult);
+    console.log("Screenshot result:");
+    console.log(screenshotResult);
     
-    // Assert default screenshot response
-    assert(screenshotDefaultResult.content, "Expected content in default screenshot response");
-    assert(Array.isArray(screenshotDefaultResult.content), "Expected content to be an array");
-    assert(screenshotDefaultResult.content.length > 0, "Expected at least one content item");
-    assert(!screenshotDefaultResult.isError, "Expected no error in default screenshot response");
-    assert(screenshotDefaultResult.content[0]?.text?.includes("Screenshot captured"), 
-           "Expected success message in default screenshot response");
-    console.log("✅ Default screenshot response validated");
-    
-    // Test the screenshot tool with explicit base64 request
-    console.log("\n=== Testing dump_image (explicit base64) ===");
-    const screenshotBase64Result = await client.callTool({
-      name: "dump_image",
-      arguments: {
-        asBase64: true
-      }
-    }) as ToolResponse;
-    
-    console.log("Screenshot result (base64):");
-    const base64Content = screenshotBase64Result.content?.[0]?.text || '';
-    console.log(`Received base64 data of length: ${base64Content.length}`);
-    if (base64Content.length > 100) {
-      console.log(`First 100 characters: ${base64Content.substring(0, 100)}...`);
-    }
-    
-    // Assert base64 screenshot response
-    assert(screenshotBase64Result.content, "Expected content in base64 screenshot response");
-    assert(Array.isArray(screenshotBase64Result.content), "Expected content to be an array");
-    assert(screenshotBase64Result.content.length > 0, "Expected at least one content item");
-    assert(!screenshotBase64Result.isError, "Expected no error in base64 screenshot response");
-    assert(base64Content.length > 1000, "Expected substantial base64 data in response");
-    assert(/^[A-Za-z0-9+/=]+$/.test(base64Content), "Expected valid base64 characters");
-    assert(base64Content.startsWith("iVBOR"), "Expected PNG image data signature");
-    console.log("✅ Base64 screenshot response validated");
+    // Assert screenshot response
+    assert(screenshotResult.content, "Expected content in screenshot response");
+    assert(Array.isArray(screenshotResult.content), "Expected content to be an array");
+    assert(screenshotResult.content.length > 0, "Expected at least one content item");
+    assert(!screenshotResult.isError, "Expected no error in screenshot response");
+    assert(screenshotResult.content[0]?.type === "image", "Expected image content type");
+    const imageData = screenshotResult.content[0]?.data || "";
+    assert(imageData.length > 1000, "Expected substantial base64 image payload");
+    assert(/^[A-Za-z0-9+/=]+$/.test(imageData), "Expected valid base64 characters");
+    assert(imageData.startsWith("iVBOR"), "Expected PNG image data signature");
+    assert(screenshotResult.content[0]?.mimeType === "image/png", "Expected image/png mimeType");
+    console.log("✅ Screenshot response validated");
     
     // Test the UI dump tool
     console.log("\n=== Testing inspect_ui ===");

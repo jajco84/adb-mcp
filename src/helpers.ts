@@ -135,7 +135,6 @@ export function splitCommandArguments(value: string): string[] {
 
     if (char === "\\") {
       escapeNext = true;
-      current += char; // preserve the backslash
       continue;
     }
 
@@ -160,8 +159,9 @@ export function splitCommandArguments(value: string): string[] {
     current += char;
   }
 
-  // If escapeNext is true, the trailing backslash is already in `current`
-  // from the loop — no need to add another one.
+  if (escapeNext) {
+    current += "\\";
+  }
 
   if (current.length > 0) {
     args.push(current);
