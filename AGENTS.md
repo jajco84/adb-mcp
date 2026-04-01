@@ -5,6 +5,7 @@
 - **Start every session** with `adb_devices` to verify a device is connected.
 - To understand what is on screen, prefer `get_interactive_elements` (structured JSON) over `inspect_ui` (raw XML). Use `inspect_ui` only when you need the full UI tree or non-interactive elements.
 - Use `dump_image` only when you need a visual screenshot (e.g. to show to the user). It returns a PNG image, not parseable data.
+- `dump_image` with `scaleFactor < 1.0` returns a resized image; do not take click coordinates from that image without converting them back to native pixels.
 - `annotated_screenshot` combines a screenshot with numbered bounding boxes and a JSON index — use it when you need both visual context and element coordinates in one call.
 
 ## UI Interaction Workflow

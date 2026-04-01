@@ -137,9 +137,10 @@ const ADB_DUMP_IMAGE_TOOL_DESCRIPTION =
   "Captures the current screen of a connected Android device and returns it as a PNG image. " +
   "The screenshot shows exactly what appears on the device screen at the moment of capture. " +
   "By default the image is resized to 40% (scaleFactor=0.4) to reduce size. Set scaleFactor=1.0 for full resolution. " +
-  "No additional parameters required beyond an optional device ID. " +
+  "Supports an optional scaleFactor parameter (0.1–1.0). " +
   "Use when you need to visually verify UI elements. " +
-  "NOTE: For programmatic analysis or to identify UI elements, use inspect_ui instead.";
+  "NOTE: Coordinates from a scaled screenshot must not be used directly for tap/swipe without conversion to native device pixels. " +
+  "For programmatic element coordinates, use get_interactive_elements (or inspect_ui when full XML is needed).";
 
 const TAP_SCREEN_TOOL_DESCRIPTION =
   "Taps on the screen of the connected Android device at the given coordinates. " +
